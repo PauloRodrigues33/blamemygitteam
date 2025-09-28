@@ -3,8 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Calendar, Users, GitCommit, TrendingUp, Filter, RefreshCw, AlertCircle,
-  Clock, Code, Activity, Target, Zap, BarChart3, PieChart, LineChart,
-  FileText, GitBranch, Hash, Timer
+  Clock, Code, Activity, Target, Zap
 } from 'lucide-react';
 import Navigation from '@/components/Navigation';
 import MetricCard from '@/components/MetricCard';

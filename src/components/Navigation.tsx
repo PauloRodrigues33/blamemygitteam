@@ -10,8 +10,6 @@ import {
   Menu, 
   X, 
   GitBranch,
-  Users,
-  Calendar
 } from 'lucide-react';
 import { StorageService } from '@/lib/storage';
 
