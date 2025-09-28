@@ -2,6 +2,7 @@ import { Repository } from '@/types';
 
 const REPOSITORIES_KEY = 'git-repositories';
 const AUTH_KEY = 'git-auth';
+const DATE_FILTER_PREFERENCE_KEY = 'dashboard-date-filter-preference';
 
 export class StorageService {
   static async getRepositories(): Promise<Repository[]> {
@@ -181,6 +182,43 @@ export class StorageService {
       localStorage.removeItem(AUTH_KEY);
     } catch (error) {
       console.error('Erro ao fazer logout:', error);
+    }
+  }
+
+  static getDateFilterPreference(): { dateFilter: string; customStartDate?: string; customEndDate?: string } {
+    if (typeof window === 'undefined') {
+      return { dateFilter: 'today' };
+    }
+    
+    try {
+      const stored = localStorage.getItem(DATE_FILTER_PREFERENCE_KEY);
+      if (stored) {
+        const preference = JSON.parse(stored);
+        return {
+          dateFilter: preference.dateFilter || 'today',
+          customStartDate: preference.customStartDate || '',
+          customEndDate: preference.customEndDate || ''
+        };
+      }
+    } catch (error) {
+      console.error('Erro ao carregar preferência do filtro de data:', error);
+    }
+    
+    return { dateFilter: 'today' };
+  }
+
+  static setDateFilterPreference(dateFilter: string, customStartDate?: string, customEndDate?: string): void {
+    if (typeof window === 'undefined') return;
+    
+    try {
+      const preference = {
+        dateFilter,
+        customStartDate: customStartDate || '',
+        customEndDate: customEndDate || ''
+      };
+      localStorage.setItem(DATE_FILTER_PREFERENCE_KEY, JSON.stringify(preference));
+    } catch (error) {
+      console.error('Erro ao salvar preferência do filtro de data:', error);
     }
   }
 }

@@ -43,7 +43,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
       <div className="flex items-center justify-center min-h-screen p-4">
         {/* Overlay */}
         <div 
-          className="fixed inset-0 bg-black bg-opacity-30 transition-opacity"
+          className="fixed inset-0 bg-black/30 backdrop-blur-md transition-opacity"
           onClick={onClose}
         />
 
