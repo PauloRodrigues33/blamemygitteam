@@ -34,6 +34,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (isAuthenticated) {
       loadRepositories();
+      loadDateFilterPreference();
     }
   }, [isAuthenticated]);
 
@@ -45,6 +46,32 @@ export default function DashboardPage() {
       console.error('Erro ao carregar repositórios:', error);
       setRepositories([]);
     }
+  };
+
+  const loadDateFilterPreference = () => {
+    try {
+      const preference = StorageService.getDateFilterPreference();
+      setDateFilter(preference.dateFilter);
+      setCustomStartDate(preference.customStartDate || '');
+      setCustomEndDate(preference.customEndDate || '');
+    } catch (error) {
+      console.error('Erro ao carregar preferência do filtro:', error);
+    }
+  };
+
+  const handleDateFilterChange = (newFilter: string) => {
+    setDateFilter(newFilter);
+    StorageService.setDateFilterPreference(newFilter, customStartDate, customEndDate);
+  };
+
+  const handleCustomStartDateChange = (date: string) => {
+    setCustomStartDate(date);
+    StorageService.setDateFilterPreference(dateFilter, date, customEndDate);
+  };
+
+  const handleCustomEndDateChange = (date: string) => {
+    setCustomEndDate(date);
+    StorageService.setDateFilterPreference(dateFilter, customStartDate, date);
   };
 
   // Métricas avançadas calculadas
@@ -177,7 +204,7 @@ export default function DashboardPage() {
     const authorsMap = new Map<string, Author>();
     
     commitsData.forEach(commit => {
-      const key = `${commit.author}-${commit.email}`;
+      const key = commit.email;
       
       if (!authorsMap.has(key)) {
         authorsMap.set(key, {
@@ -281,6 +308,11 @@ export default function DashboardPage() {
   }, [repositories, dateFilter, customStartDate, customEndDate, processCommitsData]);
 
   useEffect(() => {
+    setCommits([]);
+    setAuthors([]);
+  }, [dateFilter, customStartDate, customEndDate]);
+
+  useEffect(() => {
     if (repositories.length > 0) {
       loadCommits();
     }
@@ -333,8 +365,9 @@ export default function DashboardPage() {
               <span className="text-gray-800 font-medium">Período:</span>
               <select
                 value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
+                onChange={(e) => handleDateFilterChange(e.target.value)}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                disabled={isLoading}
               >
                 <option value="today">Hoje</option>
                 <option value="yesterday">Dia anterior</option>
@@ -345,22 +378,26 @@ export default function DashboardPage() {
                 <option value="last3months">Últimos 3 meses</option>
                 <option value="custom">Personalizado</option>
               </select>
+              {isLoading && <RefreshCw className="w-4 h-4 text-blue-600 animate-spin ml-2" />}
               
               {dateFilter === 'custom' && (
                 <>
                   <input
                     type="date"
                     value={customStartDate}
-                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    onChange={(e) => handleCustomStartDateChange(e.target.value)}
                     className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    disabled={isLoading}
                   />
                   <span className="text-gray-800">até</span>
                   <input
                     type="date"
                     value={customEndDate}
-                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    onChange={(e) => handleCustomEndDateChange(e.target.value)}
                     className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    disabled={isLoading}
                   />
+                  {isLoading && <RefreshCw className="w-4 h-4 text-blue-600 animate-spin ml-2" />}
                 </>
               )}
             </div>
@@ -384,232 +421,269 @@ export default function DashboardPage() {
           )}
 
           {/* Cards de Métricas Principais */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <MetricCard
-              title="Total de Commits"
-              value={stats.totalCommits}
-              icon={GitCommit}
-              iconColor="text-blue-600"
-              trend={{ value: advancedMetrics.weeklyTrend, label: "vs semana anterior" }}
-              modalTitle="Detalhes dos Commits"
-              modalContent={
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <p className="text-sm text-gray-600">Média por dia</p>
-                      <p className="text-2xl font-bold text-gray-900">{advancedMetrics.avgCommitsPerDay}</p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <p className="text-sm text-gray-600">Linhas por commit</p>
-                      <p className="text-2xl font-bold text-gray-900">{advancedMetrics.avgLinesPerCommit}</p>
-                    </div>
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="bg-white rounded-lg shadow-md p-6 animate-pulse">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 bg-gray-300 rounded-lg"></div>
+                    <div className="w-20 h-4 bg-gray-300 rounded"></div>
                   </div>
-                  <div>
-                    <h4 className="font-semibold mb-2">Timeline de Commits</h4>
-                    <CommitTimeline data={advancedMetrics.timelineData} />
+                  <div className="space-y-3">
+                    <div className="h-8 bg-gray-300 rounded w-3/4 mb-2"></div>
+                    <div className="h-12 bg-gray-300 rounded w-full mb-3"></div>
+                    <div className="h-4 bg-gray-300 rounded w-1/2"></div>
+                    <div className="h-4 bg-gray-300 rounded w-full mt-2"></div>
                   </div>
                 </div>
-              }
-              size="xl"
-            />
-
-            <MetricCard
-               title="Autores Ativos"
-               value={stats.totalAuthors}
-               icon={Users}
-               iconColor="text-green-600"
-               modalTitle="Atividade dos Autores"
-               modalContent={
-                 <div className="space-y-6">
-                   <div>
-                     <h4 className="text-lg font-semibold mb-3 text-gray-800">Atividade por Autor</h4>
-                     <AuthorActivity data={advancedMetrics.authorActivityData} />
-                   </div>
-                   <div>
-                     <h4 className="text-lg font-semibold mb-3 text-gray-800">Distribuição de Produtividade</h4>
-                     <ProductivityDistribution data={advancedMetrics.productivityData} />
-                   </div>
-                 </div>
-               }
-               size="xl"
-             />
-
-            <MetricCard
-              title="Commits Hoje"
-              value={stats.commitsToday}
-              icon={TrendingUp}
-              iconColor="text-purple-600"
-              modalTitle="Atividade por Hora"
-              modalContent={
-                <div className="space-y-6">
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <p className="text-sm text-gray-600">Hora mais ativa</p>
-                    <p className="text-2xl font-bold text-gray-900">{advancedMetrics.mostActiveHour}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-lg font-semibold mb-3 text-gray-800">Distribuição por Hora</h4>
-                    <HourlyActivity data={advancedMetrics.hourlyData} />
-                  </div>
-                </div>
-              }
-              size="xl"
-            />
-
-            <MetricCard
-              title="Repositórios"
-              value={stats.totalRepositories}
-              icon={Calendar}
-              iconColor="text-orange-600"
-              modalTitle="Repositórios Ativos"
-              modalContent={
-                <div className="space-y-4">
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <p className="text-sm text-gray-600">Mais ativo</p>
-                    <p className="text-lg font-bold text-gray-900">{advancedMetrics.topRepository}</p>
-                  </div>
-                  <div className="space-y-2">
-                    {repositories.map((repo, index) => (
-                      <div key={repo.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                        <span className="font-medium">{repo.name}</span>
-                        <span className="text-sm text-gray-600">{repo.path}</span>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <MetricCard
+                title="Total de Commits"
+                value={stats.totalCommits}
+                icon={GitCommit}
+                iconColor="text-blue-600"
+                trend={{ value: advancedMetrics.weeklyTrend, label: "vs semana anterior" }}
+                modalTitle="Detalhes dos Commits"
+                modalContent={
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <p className="text-sm text-gray-600">Média por dia</p>
+                        <p className="text-2xl font-bold text-gray-900">{advancedMetrics.avgCommitsPerDay}</p>
                       </div>
-                    ))}
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <p className="text-sm text-gray-600">Linhas por commit</p>
+                        <p className="text-2xl font-bold text-gray-900">{advancedMetrics.avgLinesPerCommit}</p>
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold mb-2">Timeline de Commits</h4>
+                      <CommitTimeline data={advancedMetrics.timelineData} />
+                    </div>
                   </div>
-                </div>
-              }
-              size="lg"
-            />
-          </div>
+                }
+                size="xl"
+              />
+
+              <MetricCard
+                 title="Autores Ativos"
+                 value={stats.totalAuthors}
+                 icon={Users}
+                 iconColor="text-green-600"
+                 modalTitle="Atividade dos Autores"
+                 modalContent={
+                   <div className="space-y-6">
+                     <div>
+                       <h4 className="text-lg font-semibold mb-3 text-gray-800">Atividade por Autor</h4>
+                       <AuthorActivity data={advancedMetrics.authorActivityData} />
+                     </div>
+                     <div>
+                       <h4 className="text-lg font-semibold mb-3 text-gray-800">Distribuição de Produtividade</h4>
+                       <ProductivityDistribution data={advancedMetrics.productivityData} />
+                     </div>
+                   </div>
+                 }
+                 size="xl"
+               />
+
+              <MetricCard
+                title="Commits Hoje"
+                value={stats.commitsToday}
+                icon={TrendingUp}
+                iconColor="text-purple-600"
+                modalTitle="Atividade por Hora"
+                modalContent={
+                  <div className="space-y-6">
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <p className="text-sm text-gray-600">Hora mais ativa</p>
+                      <p className="text-2xl font-bold text-gray-900">{advancedMetrics.mostActiveHour}</p>
+                    </div>
+                    <div>
+                      <h4 className="text-lg font-semibold mb-3 text-gray-800">Distribuição por Hora</h4>
+                      <HourlyActivity data={advancedMetrics.hourlyData} />
+                    </div>
+                  </div>
+                }
+                size="xl"
+              />
+
+              <MetricCard
+                title="Repositórios"
+                value={stats.totalRepositories}
+                icon={Calendar}
+                iconColor="text-orange-600"
+                modalTitle="Repositórios Ativos"
+                modalContent={
+                  <div className="space-y-4">
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <p className="text-sm text-gray-600">Mais ativo</p>
+                      <p className="text-lg font-bold text-gray-900">{advancedMetrics.topRepository}</p>
+                    </div>
+                    <div className="space-y-2">
+                      {repositories.map((repo, index) => (
+                        <div key={repo.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                          <span className="font-medium">{repo.name}</span>
+                          <span className="text-sm text-gray-600">{repo.path}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                }
+                size="lg"
+              />
+            </div>
+          )}
 
           {/* Cards de Métricas Avançadas */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <MetricCard
-              title="Score de Produtividade"
-              value={`${advancedMetrics.productivityScore}%`}
-              icon={Target}
-              iconColor="text-indigo-600"
-              modalTitle="Análise de Produtividade"
-              modalContent={
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="bg-white rounded-lg shadow-md p-6 animate-pulse">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 bg-gray-300 rounded-lg"></div>
+                    <div className="w-16 h-4 bg-gray-300 rounded"></div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="h-7 bg-gray-300 rounded w-1/2 mb-2"></div>
+                    <div className="h-10 bg-gray-300 rounded w-full mb-3"></div>
+                    <div className="h-4 bg-gray-300 rounded w-3/4"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <MetricCard
+                title="Score de Produtividade"
+                value={`${advancedMetrics.productivityScore}%`}
+                icon={Target}
+                iconColor="text-indigo-600"
+                modalTitle="Análise de Produtividade"
+                modalContent={
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <p className="text-sm text-gray-600">Frequência de commits</p>
+                        <p className="text-xl font-bold text-gray-900">{advancedMetrics.commitFrequency}</p>
+                        <p className="text-xs text-gray-500">commits/autor</p>
+                      </div>
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <p className="text-sm text-gray-600">Code churn</p>
+                        <p className="text-xl font-bold text-gray-900">{advancedMetrics.codeChurn}%</p>
+                        <p className="text-xs text-gray-500">remoções/adições</p>
+                      </div>
+                    </div>
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <h4 className="font-semibold text-blue-900 mb-2">Como é calculado?</h4>
+                      <ul className="text-sm text-blue-800 space-y-1">
+                        <li>• Média de commits por dia</li>
+                        <li>• Linhas de código por commit</li>
+                        <li>• Frequência de contribuições</li>
+                        <li>• Consistência temporal</li>
+                      </ul>
+                    </div>
+                  </div>
+                }
+                size="lg"
+              />
+
+              <MetricCard
+                title="Hora Mais Ativa"
+                value={advancedMetrics.mostActiveHour}
+                icon={Clock}
+                iconColor="text-pink-600"
+                modalTitle="Padrões de Atividade"
+                modalContent={
+                  <div className="space-y-4">
+                    <HourlyActivity data={advancedMetrics.hourlyData} />
+                    <div className="bg-yellow-50 p-4 rounded-lg">
+                      <h4 className="font-semibold text-yellow-900 mb-2">💡 Insights</h4>
+                      <p className="text-sm text-yellow-800">
+                        Identifique os horários de maior produtividade da equipe para otimizar reuniões e processos.
+                      </p>
+                    </div>
+                  </div>
+                }
+                size="lg"
+              />
+
+              <MetricCard
+                title="Linhas/Commit"
+                value={advancedMetrics.avgLinesPerCommit}
+                icon={Code}
+                iconColor="text-cyan-600"
+                modalTitle="Análise de Código"
+                modalContent={
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-green-50 p-4 rounded-lg">
+                        <p className="text-sm text-green-600">Total Adições</p>
+                        <p className="text-xl font-bold text-green-900">
+                          {commits.reduce((sum, c) => sum + c.insertions, 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="bg-red-50 p-4 rounded-lg">
+                        <p className="text-sm text-red-600">Total Remoções</p>
+                        <p className="text-xl font-bold text-red-900">
+                          {commits.reduce((sum, c) => sum + c.deletions, 0).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
                     <div className="bg-gray-50 p-4 rounded-lg">
-                      <p className="text-sm text-gray-600">Frequência de commits</p>
-                      <p className="text-xl font-bold text-gray-900">{advancedMetrics.commitFrequency}</p>
-                      <p className="text-xs text-gray-500">commits/autor</p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <p className="text-sm text-gray-600">Code churn</p>
-                      <p className="text-xl font-bold text-gray-900">{advancedMetrics.codeChurn}%</p>
-                      <p className="text-xs text-gray-500">remoções/adições</p>
-                    </div>
-                  </div>
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <h4 className="font-semibold text-blue-900 mb-2">Como é calculado?</h4>
-                    <ul className="text-sm text-blue-800 space-y-1">
-                      <li>• Média de commits por dia</li>
-                      <li>• Linhas de código por commit</li>
-                      <li>• Frequência de contribuições</li>
-                      <li>• Consistência temporal</li>
-                    </ul>
-                  </div>
-                </div>
-              }
-              size="lg"
-            />
-
-            <MetricCard
-              title="Hora Mais Ativa"
-              value={advancedMetrics.mostActiveHour}
-              icon={Clock}
-              iconColor="text-pink-600"
-              modalTitle="Padrões de Atividade"
-              modalContent={
-                <div className="space-y-4">
-                  <HourlyActivity data={advancedMetrics.hourlyData} />
-                  <div className="bg-yellow-50 p-4 rounded-lg">
-                    <h4 className="font-semibold text-yellow-900 mb-2">💡 Insights</h4>
-                    <p className="text-sm text-yellow-800">
-                      Identifique os horários de maior produtividade da equipe para otimizar reuniões e processos.
-                    </p>
-                  </div>
-                </div>
-              }
-              size="lg"
-            />
-
-            <MetricCard
-              title="Linhas/Commit"
-              value={advancedMetrics.avgLinesPerCommit}
-              icon={Code}
-              iconColor="text-cyan-600"
-              modalTitle="Análise de Código"
-              modalContent={
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-green-50 p-4 rounded-lg">
-                      <p className="text-sm text-green-600">Total Adições</p>
-                      <p className="text-xl font-bold text-green-900">
-                        {commits.reduce((sum, c) => sum + c.insertions, 0).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="bg-red-50 p-4 rounded-lg">
-                      <p className="text-sm text-red-600">Total Remoções</p>
-                      <p className="text-xl font-bold text-red-900">
-                        {commits.reduce((sum, c) => sum + c.deletions, 0).toLocaleString()}
+                      <h4 className="font-semibold mb-2">Interpretação</h4>
+                      <p className="text-sm text-gray-600">
+                        Commits menores (50-200 linhas) geralmente indicam melhor qualidade e facilidade de revisão.
                       </p>
                     </div>
                   </div>
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h4 className="font-semibold mb-2">Interpretação</h4>
-                    <p className="text-sm text-gray-600">
-                      Commits menores (50-200 linhas) geralmente indicam melhor qualidade e facilidade de revisão.
-                    </p>
-                  </div>
-                </div>
-              }
-              size="lg"
-            />
+                }
+                size="lg"
+              />
 
-            <MetricCard
-              title="Commits/Dia"
-              value={advancedMetrics.avgCommitsPerDay}
-              icon={Activity}
-              iconColor="text-emerald-600"
-              modalTitle="Frequência de Commits"
-              modalContent={
-                <div className="space-y-4">
-                  <CommitTimeline data={advancedMetrics.timelineData} />
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="bg-gray-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-gray-600">Ideal</p>
-                      <p className="text-lg font-bold text-green-600">3-5</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-gray-600">Atual</p>
-                      <p className="text-lg font-bold text-gray-900">{advancedMetrics.avgCommitsPerDay}</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-gray-600">Status</p>
-                      <p className={`text-lg font-bold ${
-                        advancedMetrics.avgCommitsPerDay >= 3 && advancedMetrics.avgCommitsPerDay <= 5 
-                          ? 'text-green-600' 
-                          : advancedMetrics.avgCommitsPerDay > 5 
-                            ? 'text-yellow-600' 
-                            : 'text-red-600'
-                      }`}>
-                        {advancedMetrics.avgCommitsPerDay >= 3 && advancedMetrics.avgCommitsPerDay <= 5 
-                          ? '✓' 
-                          : advancedMetrics.avgCommitsPerDay > 5 
-                            ? '⚠' 
-                            : '⚠'}
-                      </p>
+              <MetricCard
+                title="Commits/Dia"
+                value={advancedMetrics.avgCommitsPerDay}
+                icon={Activity}
+                iconColor="text-emerald-600"
+                modalTitle="Frequência de Commits"
+                modalContent={
+                  <div className="space-y-4">
+                    <CommitTimeline data={advancedMetrics.timelineData} />
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="bg-gray-50 p-3 rounded-lg text-center">
+                        <p className="text-xs text-gray-600">Ideal</p>
+                        <p className="text-lg font-bold text-green-600">3-5</p>
+                      </div>
+                      <div className="bg-gray-50 p-3 rounded-lg text-center">
+                        <p className="text-xs text-gray-600">Atual</p>
+                        <p className="text-lg font-bold text-gray-900">{advancedMetrics.avgCommitsPerDay}</p>
+                      </div>
+                      <div className="bg-gray-50 p-3 rounded-lg text-center">
+                        <p className="text-xs text-gray-600">Status</p>
+                        <p className={`text-lg font-bold ${
+                          advancedMetrics.avgCommitsPerDay >= 3 && advancedMetrics.avgCommitsPerDay <= 5 
+                            ? 'text-green-600' 
+                            : advancedMetrics.avgCommitsPerDay > 5 
+                              ? 'text-yellow-600' 
+                              : 'text-red-600'
+                        }`}>
+                          {advancedMetrics.avgCommitsPerDay >= 3 && advancedMetrics.avgCommitsPerDay <= 5 
+                            ? '✓' 
+                            : advancedMetrics.avgCommitsPerDay > 5 
+                              ? '⚠' 
+                              : '⚠'}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              }
-              size="lg"
-            />
-          </div>
+                }
+                size="lg"
+              />
+            </div>
+          )}
 
           {/* Seção de Alertas e Insights */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -806,6 +880,57 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+                    {/* Gráfico de Commits por Autor */}
+          {isLoading ? (
+            <div className="bg-white rounded-lg shadow-md p-6 animate-pulse">
+              <div className="h-6 bg-gray-300 rounded w-1/3 mb-4"></div>
+              <div className="space-y-4">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <div key={i} className="flex items-center space-x-3">
+                    <div className="w-20 h-4 bg-gray-300 rounded"></div>
+                    <div className="flex-1 h-4 bg-gray-300 rounded"></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : authors.length > 0 && (
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Commits por Autor (Top 10)</h3>
+              <div className="space-y-3">
+                {advancedMetrics.authorActivityData.map((author, index) => {
+                  const maxCommits = advancedMetrics.authorActivityData[0]?.commits || 1;
+                  const barWidth = Math.max(10, (author.commits / maxCommits) * 100);
+                  const isTop3 = index < 3;
+                  const barColor = isTop3 
+                    ? index === 0 ? 'bg-yellow-400' 
+                    : index === 1 ? 'bg-gray-400' 
+                    : 'bg-orange-500'
+                    : 'bg-blue-400';
+                  return (
+                    <div key={author.name} className="flex items-center space-x-3">
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white ${isTop3 ? 'bg-black' : 'bg-gray-600'}`}>
+                        {index + 1}
+                      </span>
+                      <span className="w-32 text-sm font-medium text-gray-900 truncate">{author.name}</span>
+                      <div className="flex-1 bg-gray-200 rounded-full h-3 relative overflow-hidden">
+                        <div 
+                          className={`${barColor} h-full rounded-full transition-all duration-300`}
+                          style={{ width: `${barWidth}%` }}
+                        ></div>
+                      </div>
+                      <span className="w-12 text-sm font-semibold text-gray-700">{author.commits}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {authors.length > 3 && (
+                <div className="mt-4 pt-4 border-t border-gray-200 text-center text-sm text-gray-500">
+                  ... e mais {authors.length - 10} autores
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Tabela de Autores - Largura Total */}
           <div className="bg-white rounded-lg shadow-md">
