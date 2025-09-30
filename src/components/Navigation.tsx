@@ -11,7 +11,8 @@ import {
   X, 
   GitBranch,
   Users,
-  Calendar
+  Calendar,
+  Code2
 } from 'lucide-react';
 import { StorageService } from '@/lib/storage';
 
@@ -25,6 +26,11 @@ const menuItems = [
     href: '/repositories',
     label: 'Repositórios',
     icon: GitBranch,
+  },
+  {
+    href: '/branches',
+    label: 'Branches',
+    icon: Code2,
   },
   // {
   //   href: '/authors',

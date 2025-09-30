@@ -167,6 +167,7 @@ export default function DashboardPage() {
 
     const authorActivityData = authors.slice(0, 10).map(author => ({
       name: author.name.split(' ')[0], // Primeiro nome apenas
+      email: author.email,
       commits: author.totalCommits,
       insertions: author.totalInsertions,
       deletions: author.totalDeletions
@@ -908,7 +909,7 @@ export default function DashboardPage() {
                     : 'bg-orange-500'
                     : 'bg-blue-400';
                   return (
-                    <div key={author.name} className="flex items-center space-x-3">
+                    <div key={author.email} className="flex items-center space-x-3">
                       <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white ${isTop3 ? 'bg-black' : 'bg-gray-600'}`}>
                         {index + 1}
                       </span>

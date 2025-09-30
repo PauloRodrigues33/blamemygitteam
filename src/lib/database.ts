@@ -27,6 +27,7 @@ db.exec(`
     files_changed INTEGER DEFAULT 0,
     insertions INTEGER DEFAULT 0,
     deletions INTEGER DEFAULT 0,
+    branch TEXT DEFAULT 'main',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -63,8 +64,8 @@ export class DatabaseService {
   static saveCommits(commits: GitCommit[], repositoryName: string) {
     const insertCommit = db.prepare(`
       INSERT OR REPLACE INTO commits 
-      (hash, author_name, author_email, date, message, repository_path, repository_name, files_changed, insertions, deletions)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (hash, author_name, author_email, date, message, repository_path, repository_name, files_changed, insertions, deletions, branch)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((commits: GitCommit[]) => {
@@ -79,7 +80,8 @@ export class DatabaseService {
           repositoryName,
           commit.filesChanged || 0,
           commit.insertions || 0,
-          commit.deletions || 0
+          commit.deletions || 0,
+          commit.branch || 'main'
         );
       }
     });
@@ -131,6 +133,7 @@ export class DatabaseService {
       files_changed: number;
       insertions: number;
       deletions: number;
+      branch: string;
     }
     
     const rows = stmt.all(...params) as DbCommit[];
@@ -144,7 +147,8 @@ export class DatabaseService {
       repository: row.repository_path,
       filesChanged: row.files_changed || 0,
       insertions: row.insertions || 0,
-      deletions: row.deletions || 0
+      deletions: row.deletions || 0,
+      branch: row.branch || 'main'
     }));
   }
 
@@ -293,6 +297,126 @@ export class DatabaseService {
         this.saveRepository(repo);
       }
     }
+  }
+
+  // Buscar atividades dos desenvolvedores
+  static getDeveloperActivities(): any[] {
+    const stmt = db.prepare(`
+      SELECT 
+        author_name as author,
+        author_email as email,
+        MAX(date) as lastActivity,
+        (SELECT message FROM commits c2 WHERE c2.author_email = c.author_email ORDER BY date DESC LIMIT 1) as lastCommitMessage,
+        (SELECT repository_name FROM commits c3 WHERE c3.author_email = c.author_email ORDER BY date DESC LIMIT 1) as lastRepository,
+        (SELECT branch FROM commits c4 WHERE c4.author_email = c.author_email ORDER BY date DESC LIMIT 1) as lastBranch,
+        (SELECT COUNT(*) FROM commits c5 WHERE c5.author_email = c.author_email AND DATE(c5.date) = DATE('now')) as totalCommitsToday,
+        (SELECT COUNT(*) FROM commits c6 WHERE c6.author_email = c.author_email AND DATE(c6.date) >= DATE('now', '-7 days')) as totalCommitsWeek,
+        GROUP_CONCAT(DISTINCT branch) as activeBranches,
+        GROUP_CONCAT(DISTINCT repository_name) as repositories
+      FROM commits c
+      GROUP BY author_email
+      ORDER BY lastActivity DESC
+    `);
+
+    const rows = stmt.all();
+    
+    return rows.map((row: any) => ({
+      author: row.author,
+      email: row.email,
+      lastActivity: new Date(row.lastActivity),
+      lastCommitMessage: row.lastCommitMessage,
+      lastRepository: row.lastRepository,
+      lastBranch: row.lastBranch,
+      totalCommitsToday: row.totalCommitsToday || 0,
+      totalCommitsWeek: row.totalCommitsWeek || 0,
+      activeBranches: row.activeBranches ? row.activeBranches.split(',') : [],
+      repositories: row.repositories ? row.repositories.split(',') : []
+    }));
+  }
+
+  // Buscar estatísticas de branches
+  static getBranchStats(): any[] {
+    const stmt = db.prepare(`
+      SELECT 
+        branch,
+        repository_name as repository,
+        COUNT(*) as totalCommits,
+        COUNT(DISTINCT author_email) as totalAuthors,
+        MAX(date) as lastActivity
+      FROM commits
+      WHERE branch IS NOT NULL AND branch != ''
+      GROUP BY branch, repository_name
+      ORDER BY lastActivity DESC
+    `);
+
+    const rows = stmt.all();
+    
+    return rows.map((row: any) => ({
+      branch: row.branch,
+      repository: row.repository,
+      totalCommits: row.totalCommits,
+      totalAuthors: row.totalAuthors,
+      lastActivity: new Date(row.lastActivity)
+    }));
+  }
+
+  // Buscar autores por branch
+  static getAuthorsByBranch(branch: string, repository: string): any[] {
+    const stmt = db.prepare(`
+      SELECT 
+        author_name as name,
+        author_email as email,
+        COUNT(*) as commits,
+        MAX(date) as lastCommit
+      FROM commits
+      WHERE branch = ? AND repository_name = ?
+      GROUP BY author_email
+      ORDER BY commits DESC
+    `);
+
+    const rows = stmt.all(branch, repository);
+    
+    return rows.map((row: any) => ({
+      name: row.name,
+      email: row.email,
+      commits: row.commits,
+      lastCommit: new Date(row.lastCommit)
+    }));
+  }
+
+  // Buscar atividades de branches por usuário
+  static getBranchActivitiesByUser(): any[] {
+    const stmt = db.prepare(`
+      SELECT 
+        branch,
+        repository_name as repository,
+        author_name as author,
+        author_email as email,
+        MAX(date) as lastCommit,
+        (SELECT message FROM commits c2 WHERE c2.branch = c.branch AND c2.repository_name = c.repository_name AND c2.author_email = c.author_email ORDER BY date DESC LIMIT 1) as lastCommitMessage,
+        COUNT(*) as totalCommits,
+        CASE 
+          WHEN MAX(date) >= DATE('now', '-7 days') THEN 1 
+          ELSE 0 
+        END as isActive
+      FROM commits c
+      WHERE branch IS NOT NULL AND branch != ''
+      GROUP BY branch, repository_name, author_email
+      ORDER BY lastCommit DESC
+    `);
+
+    const rows = stmt.all();
+    
+    return rows.map((row: any) => ({
+      branch: row.branch,
+      repository: row.repository,
+      author: row.author,
+      email: row.email,
+      lastCommit: new Date(row.lastCommit),
+      lastCommitMessage: row.lastCommitMessage,
+      totalCommits: row.totalCommits,
+      isActive: row.isActive === 1
+    }));
   }
 }
 

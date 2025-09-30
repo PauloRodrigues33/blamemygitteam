@@ -99,6 +99,53 @@ export class GitService {
     }
   }
 
+  async getBranches(): Promise<string[]> {
+    try {
+      const branches = await this.git.branch(['-a']);
+      return branches.all.filter(branch => !branch.startsWith('remotes/origin/HEAD'));
+    } catch (error) {
+      console.error('Erro ao obter branches:', error);
+      return [];
+    }
+  }
+
+  async getCurrentBranch(): Promise<string> {
+    try {
+      const status = await this.git.status();
+      return status.current || 'main';
+    } catch (error) {
+      console.error('Erro ao obter branch atual:', error);
+      return 'main';
+    }
+  }
+
+  async getCommitsWithBranch(since?: Date, until?: Date): Promise<GitCommit[]> {
+    try {
+      const commits = await this.getCommits(since, until);
+      const currentBranch = await this.getCurrentBranch();
+      
+      // Para cada commit, tentar determinar a branch
+      for (const commit of commits) {
+        try {
+          // Verificar se o commit existe na branch atual
+          const branchContains = await this.git.raw(['branch', '--contains', commit.hash]);
+          const branches = branchContains.split('\n')
+            .map(line => line.trim().replace(/^\*\s*/, ''))
+            .filter(line => line && !line.startsWith('('));
+          
+          (commit as any).branch = branches.length > 0 ? branches[0] : currentBranch;
+        } catch {
+          (commit as any).branch = currentBranch;
+        }
+      }
+      
+      return commits;
+    } catch (error) {
+      console.error('Erro ao obter commits com branch:', error);
+      return [];
+    }
+  }
+
   static getDateRange(filterType: string, customStart?: Date, customEnd?: Date) {
     const now = new Date();
     
