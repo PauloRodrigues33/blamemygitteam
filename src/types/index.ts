@@ -102,3 +102,11 @@ export interface BranchStats {
     lastCommit: Date;
   }>;
 }
+
+export interface RemoteBranch {
+  name: string;
+  authorName: string;
+  authorEmail: string;
+  repository: string;
+  commitDate: string;
+}

@@ -2,24 +2,26 @@
 
 import { useState, useEffect } from 'react';
 import { 
-  GitBranch, Users, Clock, Activity, TrendingUp, Calendar,
-  User, Code, FileText, AlertCircle, CheckCircle, Zap
+  GitBranch, Users, FileText, AlertCircle, User, Calendar
 } from 'lucide-react';
 import Navigation from '@/components/Navigation';
 import MetricCard from '@/components/MetricCard';
+import Modal from '@/components/Modal';
 import { useAuth } from '@/hooks/useAuth';
-
-import { BranchActivity, DeveloperActivity, BranchStats } from '@/types';
 import { format, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+
+import { RemoteBranch, GitCommit } from '@/types';
 
 export default function BranchesPage() {
   const { isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [developerActivities, setDeveloperActivities] = useState<DeveloperActivity[]>([]);
-  const [branchStats, setBranchStats] = useState<BranchStats[]>([]);
-  const [branchActivities] = useState<BranchActivity[]>([]);
-  const [selectedView, setSelectedView] = useState<'branches' | 'developers'>('branches');
+  const [groupedBranches, setGroupedBranches] = useState<Record<string, Record<string, RemoteBranch[]>>>({});
+  
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedBranch, setSelectedBranch] = useState<(RemoteBranch & { repoName: string }) | null>(null);
+  const [branchCommits, setBranchCommits] = useState<Partial<GitCommit>[]>([]);
+  const [isLoadingCommits, setIsLoadingCommits] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -28,6 +30,7 @@ export default function BranchesPage() {
   }, [isAuthenticated]);
 
   const loadData = async () => {
+    setLoading(true);
     try {
       const response = await fetch('/api/branches');
       if (!response.ok) {
@@ -35,33 +38,32 @@ export default function BranchesPage() {
       }
       
       const data = await response.json();
-      setBranchStats(data.branchStats || []);
-      setDeveloperActivities(data.developerActivities || []);
+      setGroupedBranches(data.groupedBranches || {});
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
-      setBranchStats([]);
-      setDeveloperActivities([]);
+      setGroupedBranches({});
     } finally {
       setLoading(false);
     }
   };
 
-  const getActivityStatus = (lastActivity: Date) => {
-    const now = new Date();
-    const diffInHours = (now.getTime() - lastActivity.getTime()) / (1000 * 60 * 60);
-    
-    if (diffInHours < 24) return { status: 'active', color: 'text-green-600', bg: 'bg-green-100' };
-    if (diffInHours < 72) return { status: 'recent', color: 'text-yellow-600', bg: 'bg-yellow-100' };
-    return { status: 'inactive', color: 'text-red-600', bg: 'bg-red-100' };
+  const handleBranchClick = async (branch: RemoteBranch & { repoName: string }) => {
+    setSelectedBranch(branch);
+    setIsModalOpen(true);
+    setIsLoadingCommits(true);
+    try {
+      const response = await fetch(`/api/commits?repo=${encodeURIComponent(branch.repoName)}&branch=${encodeURIComponent(branch.name)}`);
+      const data = await response.json();
+      if (data.commits) {
+        setBranchCommits(data.commits);
+      }
+    } catch (error) {
+      console.error("Failed to fetch commits", error);
+      setBranchCommits([]);
+    } finally {
+      setIsLoadingCommits(false);
+    }
   };
-
-  const totalActiveBranches = branchStats.filter(branch => {
-    const lastActivity = new Date(branch.lastActivity);
-    const diffInDays = (new Date().getTime() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
-    return diffInDays <= 7;
-  }).length;
-
-  const totalActiveDevelopers = developerActivities.filter(dev => dev.totalCommitsWeek > 0).length;
 
   if (!isAuthenticated) {
     return (
@@ -75,6 +77,10 @@ export default function BranchesPage() {
     );
   }
 
+  const totalBranches = Object.values(groupedBranches).flatMap(repos => Object.values(repos).flat()).length;
+  const totalDevelopers = Object.keys(groupedBranches).length;
+  const totalRepositories = new Set(Object.values(groupedBranches).flatMap(repos => Object.keys(repos))).size;
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
       <Navigation />
@@ -86,279 +92,120 @@ export default function BranchesPage() {
               <div>
                 <h1 className="text-3xl font-bold text-gray-900 flex items-center">
                   <GitBranch className="w-8 h-8 mr-3 text-blue-600" />
-                  Dashboard de Branches
+                  Dashboard de Branches Remotas
                 </h1>
                 <p className="text-gray-600">
-                  Acompanhe as atividades dos desenvolvedores por branches e repositórios
+                  Branches remotas de todos os repositórios, agrupadas por autor e projeto.
                 </p>
               </div>
             </div>
 
-        {/* Métricas Gerais */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <MetricCard
-            title="Branches Ativas"
-            value={totalActiveBranches}
-            icon={GitBranch}
-            iconColor="text-blue-400"
-          />
-          <MetricCard
-            title="Desenvolvedores Ativos"
-            value={totalActiveDevelopers}
-            icon={Users}
-            iconColor="text-green-400"
-          />
-          <MetricCard
-            title="Total de Branches"
-            value={branchStats.length}
-            icon={Code}
-            iconColor="text-purple-400"
-          />
-          <MetricCard
-            title="Repositórios"
-            value={new Set(branchStats.map(b => b.repository)).size}
-            icon={FileText}
-            iconColor="text-orange-400"
-          />
-        </div>
-
-            {/* Navegação entre views */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex space-x-4">
-                <button
-                  onClick={() => setSelectedView('branches')}
-                  className={`px-6 py-3 rounded-lg font-medium transition-colors ${
-                    selectedView === 'branches'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  <GitBranch className="w-5 h-5 inline mr-2" />
-                  Por Branches
-                </button>
-                <button
-                  onClick={() => setSelectedView('developers')}
-                  className={`px-6 py-3 rounded-lg font-medium transition-colors ${
-                    selectedView === 'developers'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  <Users className="w-5 h-5 inline mr-2" />
-                  Por Desenvolvedores
-                </button>
-              </div>
+            {/* Métricas Gerais */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+              <MetricCard
+                title="Total de Branches"
+                value={totalBranches}
+                icon={GitBranch}
+                iconColor="text-blue-400"
+              />
+              <MetricCard
+                title="Total de Desenvolvedores"
+                value={totalDevelopers}
+                icon={Users}
+                iconColor="text-green-400"
+              />
+              <MetricCard
+                title="Total de Repositórios"
+                value={totalRepositories}
+                icon={FileText}
+                iconColor="text-orange-400"
+              />
             </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400"></div>
-          </div>
-        ) : (
-          <>
-            {selectedView === 'branches' ? (
-              <BranchesView 
-                branchActivities={branchActivities}
-                branchStats={branchStats}
-                getActivityStatus={getActivityStatus}
-              />
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400"></div>
+              </div>
             ) : (
-              <DevelopersView 
-                developerActivities={developerActivities}
-                getActivityStatus={getActivityStatus}
-              />
+              <BranchesByAuthorView groupedBranches={groupedBranches} onBranchClick={handleBranchClick} />
             )}
-          </>
-        )}
           </div>
         </div>
       </div>
+
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={`Últimos 10 commits em ${selectedBranch?.repoName}/${selectedBranch?.name}`}
+        size="lg"
+      >
+        {isLoadingCommits ? (
+          <div className="flex justify-center items-center p-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+          </div>
+        ) : (
+          <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
+            {branchCommits.map(commit => (
+              <li key={commit.hash} className="border-b border-gray-200 pb-3 last:border-b-0">
+                <p className="font-medium text-gray-800 text-sm">{commit.message}</p>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-xs text-gray-500">por <span className="font-semibold">{commit.author}</span> em {format(new Date(commit.date!), 'dd/MM/yyyy HH:mm', { locale: ptBR })}</p>
+                  <p className="text-xs text-gray-400 font-mono bg-gray-100 px-1 rounded">{commit.hash?.substring(0, 7)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Modal>
     </div>
   );
 }
 
-// Componente para visualização por branches
-function BranchesView({ 
-  branchActivities, 
-  branchStats, 
-  getActivityStatus 
+function BranchesByAuthorView({ 
+  groupedBranches, 
+  onBranchClick 
 }: { 
-  branchActivities: BranchActivity[];
-  branchStats: BranchStats[];
-  getActivityStatus: (date: Date) => { status: string; color: string; bg: string };
+  groupedBranches: Record<string, Record<string, RemoteBranch[]>>;
+  onBranchClick: (branch: RemoteBranch & { repoName: string }) => void;
 }) {
-  const groupedByBranch = branchActivities.reduce((acc, activity) => {
-    const key = `${activity.repository}/${activity.branch}`;
-    if (!acc[key]) {
-      acc[key] = [];
-    }
-    acc[key].push(activity);
-    return acc;
-  }, {} as Record<string, BranchActivity[]>);
-
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900 mb-4">Atividades por Branch</h2>
-      
-      {Object.entries(groupedByBranch).map(([branchKey, activities]) => {
-        const [repository, branch] = branchKey.split('/');
-        const branchStat = branchStats.find(s => s.branch === branch && s.repository === repository);
-        const lastActivity = Math.max(...activities.map(a => new Date(a.lastCommit).getTime()));
-        const status = getActivityStatus(new Date(lastActivity));
-        
-        return (
-          <div key={branchKey} className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center">
-                <GitBranch className="w-6 h-6 text-blue-600 mr-3" />
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900">
-                    {branch}
-                  </h3>
-                  <p className="text-gray-600 text-sm">{repository}</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-4">
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${status.bg} ${status.color}`}>
-                  {status.status === 'active' ? 'Ativo' : status.status === 'recent' ? 'Recente' : 'Inativo'}
-                </span>
-                <div className="text-right">
-                  <p className="text-gray-900 font-semibold">{branchStat?.totalCommits || 0} commits</p>
-                  <p className="text-gray-600 text-sm">{branchStat?.totalAuthors || 0} desenvolvedores</p>
-                </div>
-              </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+      {Object.entries(groupedBranches).map(([author, repos]) => (
+        <div key={author} className="bg-white rounded-lg shadow-md p-4 flex flex-col h-[400px]">
+          {/* Author Header */}
+          <div className="flex items-center mb-3 flex-shrink-0">
+            <User className="w-6 h-6 text-blue-600 mr-2" />
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">{author}</h2>
+              <p className="text-xs text-gray-500">{Object.values(repos)[0]?.[0]?.authorEmail}</p>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {activities.map((activity, index) => (
-                <div key={index} className="bg-gray-50 rounded-lg p-4 border">
-                  <div className="flex items-center mb-2">
-                    <User className="w-5 h-5 text-green-600 mr-2" />
-                    <span className="text-gray-900 font-medium">{activity.author}</span>
-                    {activity.isActive && (
-                      <CheckCircle className="w-4 h-4 text-green-600 ml-2" />
-                    )}
+          </div>
+
+          {/* Scrollable Branches List */}
+          <div className="space-y-1 flex-grow overflow-y-auto pr-2">
+            {Object.entries(repos)
+              .flatMap(([repoName, branches]) => branches.map(branch => ({ ...branch, repoName })))
+              .sort((a, b) => new Date(b.commitDate).getTime() - new Date(a.commitDate).getTime())
+              .map((branch, index) => (
+                <div 
+                  key={index} 
+                  className="grid grid-cols-[1fr_auto] items-center p-1.5 rounded-md hover:bg-gray-100 cursor-pointer"
+                  onClick={() => onBranchClick(branch)}
+                >
+                  <div className="flex items-center truncate">
+                    <GitBranch className="w-4 h-4 text-purple-600 mr-2 flex-shrink-0" />
+                    <span className="text-sm font-medium text-gray-500 mr-2 flex-shrink-0">{branch.repoName}</span>
+                    <span className="text-sm text-gray-800 truncate">{branch.name}</span>
                   </div>
-                  <p className="text-gray-700 text-sm mb-2 line-clamp-2">
-                    {activity.lastCommitMessage}
-                  </p>
-                  <div className="flex items-center justify-between text-xs text-gray-600">
-                    <span>{activity.totalCommits} commits</span>
-                    <span>{formatDistanceToNow(activity.lastCommit, { addSuffix: true, locale: ptBR })}</span>
+                  <div className="flex items-center text-xs text-gray-500 ml-4">
+                    <Calendar className="w-3 h-3 mr-1" />
+                    <span className="whitespace-nowrap">{formatDistanceToNow(new Date(branch.commitDate), { addSuffix: true, locale: ptBR })}</span>
                   </div>
                 </div>
               ))}
-            </div>
           </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// Componente para visualização por desenvolvedores
-function DevelopersView({ 
-  developerActivities, 
-  getActivityStatus 
-}: { 
-  developerActivities: DeveloperActivity[];
-  getActivityStatus: (date: Date) => { status: string; color: string; bg: string };
-}) {
-  return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900 mb-4">Atividades dos Desenvolvedores</h2>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {developerActivities.map((developer, index) => {
-          const status = getActivityStatus(new Date(developer.lastActivity));
-          
-          return (
-            <div key={index} className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center">
-                  <User className="w-8 h-8 text-blue-600 mr-3" />
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-900">{developer.author}</h3>
-                    <p className="text-gray-600 text-sm">{developer.email}</p>
-                  </div>
-                </div>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${status.bg} ${status.color}`}>
-                  {status.status === 'active' ? 'Ativo' : status.status === 'recent' ? 'Recente' : 'Inativo'}
-                </span>
-              </div>
-              
-              <div className="space-y-3">
-                <div className="bg-gray-50 rounded-lg p-4 border">
-                  <h4 className="text-gray-900 font-medium mb-2 flex items-center">
-                    <Clock className="w-4 h-4 mr-2 text-yellow-600" />
-                    Última Atividade
-                  </h4>
-                  <p className="text-gray-700 text-sm mb-1">{developer.lastCommitMessage}</p>
-                  <div className="flex items-center justify-between text-xs text-gray-600">
-                    <span>{developer.lastRepository} / {developer.lastBranch}</span>
-                    <span>{formatDistanceToNow(new Date(developer.lastActivity), { addSuffix: true, locale: ptBR })}</span>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-gray-50 rounded-lg p-3 text-center border">
-                    <div className="flex items-center justify-center mb-1">
-                      <Calendar className="w-4 h-4 text-green-600 mr-1" />
-                      <span className="text-gray-900 font-semibold">{developer.totalCommitsToday}</span>
-                    </div>
-                    <p className="text-gray-600 text-xs">Hoje</p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-3 text-center border">
-                    <div className="flex items-center justify-center mb-1">
-                      <TrendingUp className="w-4 h-4 text-blue-600 mr-1" />
-                      <span className="text-gray-900 font-semibold">{developer.totalCommitsWeek}</span>
-                    </div>
-                    <p className="text-gray-600 text-xs">Esta semana</p>
-                  </div>
-                </div>
-                
-                <div className="bg-gray-50 rounded-lg p-3 border">
-                  <h5 className="text-gray-900 font-medium mb-2 flex items-center">
-                    <GitBranch className="w-4 h-4 mr-2 text-purple-600" />
-                    Branches Ativas ({developer.activeBranches.length})
-                  </h5>
-                  <div className="flex flex-wrap gap-1">
-                    {developer.activeBranches.slice(0, 5).map((branch, idx) => (
-                      <span key={idx} className="px-2 py-1 bg-gray-200 text-gray-700 text-xs rounded">
-                        {branch}
-                      </span>
-                    ))}
-                    {developer.activeBranches.length > 5 && (
-                      <span className="px-2 py-1 bg-gray-200 text-gray-600 text-xs rounded">
-                        +{developer.activeBranches.length - 5}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="bg-gray-50 rounded-lg p-3 border">
-                  <h5 className="text-gray-900 font-medium mb-2 flex items-center">
-                    <FileText className="w-4 h-4 mr-2 text-orange-600" />
-                    Repositórios ({developer.repositories.length})
-                  </h5>
-                  <div className="flex flex-wrap gap-1">
-                    {developer.repositories.slice(0, 3).map((repo, idx) => (
-                      <span key={idx} className="px-2 py-1 bg-gray-200 text-gray-700 text-xs rounded">
-                        {repo}
-                      </span>
-                    ))}
-                    {developer.repositories.length > 3 && (
-                      <span className="px-2 py-1 bg-gray-200 text-gray-600 text-xs rounded">
-                        +{developer.repositories.length - 3}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+        </div>
+      ))}
     </div>
   );
 }

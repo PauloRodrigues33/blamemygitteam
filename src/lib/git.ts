@@ -1,5 +1,5 @@
 import { simpleGit, SimpleGit } from 'simple-git';
-import { GitCommit } from '@/types';
+import { GitCommit, RemoteBranch } from '@/types';
 import { format, startOfDay, endOfDay, subDays, startOfWeek, subMonths } from 'date-fns';
 
 export class GitService {
@@ -9,16 +9,24 @@ export class GitService {
     this.git = simpleGit(repoPath);
   }
 
+  async fetch() {
+    try {
+      await this.git.fetch(['--prune']);
+    } catch (error) {
+      console.warn(`Falha ao executar "git fetch". O repositório pode não ter um remote ou as credenciais são inválidas.`, error);
+    }
+  }
+
   async getCommits(since?: Date, until?: Date): Promise<GitCommit[]> {
     try {
       // Construir argumentos do comando git log manualmente
-      const args: string[] = ['log', '--max-count=1000', '--pretty=format:%H|%ai|%s|%an|%ae'];
+      const args: string[] = ['log', '--all', '--max-count=1000', '--pretty=format:%H|%ai|%s|%an|%ae'];
 
       if (since) {
-        args.push(`--since=${format(since, 'yyyy-MM-dd')}`);
+        args.push(`--since=${format(since, 'yyyy-MM-dd HH:mm:ss')}`);
       }
       if (until) {
-        args.push(`--until=${format(until, 'yyyy-MM-dd')}`);
+        args.push(`--until=${format(until, 'yyyy-MM-dd HH:mm:ss')}`);
       }
 
       // Usar raw para evitar problemas com parsing de argumentos
@@ -146,7 +154,57 @@ export class GitService {
     }
   }
 
-  static getDateRange(filterType: string, customStart?: Date, customEnd?: Date) {
+  async getRemoteBranches(): Promise<Omit<RemoteBranch, 'repository'>[]> {
+    try {
+      // Using for-each-ref to get author details for each remote branch
+      const format = '%(refname:short)|%(authorname)|%(authoremail)|%(committerdate:iso8601)';
+      const output = await this.git.raw([
+        'for-each-ref',
+        `--format=${format}`,
+        'refs/remotes',
+      ]);
+
+      if (!output) {
+        return [];
+      }
+
+      return output
+        .trim()
+        .split('\n')
+        .map((line) => {
+          const [name, authorName, authorEmail, commitDate] = line.split('|');
+          // We can ignore the HEAD pointer
+          if (name.includes('->')) return null;
+          return { name: name.replace('origin/', ''), authorName, authorEmail, commitDate };
+        })
+        .filter((branch): branch is Omit<RemoteBranch, 'repository'> => branch !== null);
+    } catch (error) {
+      console.error('Erro ao obter branches remotas:', error);
+      return [];
+    }
+  }
+
+  async getCommitsForBranch(branchName: string, maxCount: number = 10): Promise<Partial<GitCommit>[]> {
+    try {
+      const log = await this.git.log({
+        '--max-count': maxCount,
+        [branchName]: null,
+      });
+
+      return log.all.map(l => ({
+          hash: l.hash,
+          author: l.author_name,
+          email: l.author_email,
+          date: new Date(l.date),
+          message: l.message,
+      }));
+    } catch (error) {
+      console.error(`Erro ao obter commits para a branch ${branchName}:`, error);
+      return [];
+    }
+  }
+
+  static getDateRange(filterType: string, customStart?: any, customEnd?: any) {
     const now = new Date();
     
     switch (filterType) {
@@ -168,7 +226,7 @@ export class GitService {
         };
       case 'lastweek':
         return {
-          start: startOfWeek(now),
+          start: startOfDay(subDays(now, 6)),
           end: endOfDay(now),
         };
       case 'lastmonth':
@@ -187,9 +245,11 @@ export class GitService {
           end: endOfDay(now),
         };
       case 'custom':
+        const startDate = customStart ? new Date(`${customStart}T00:00:00`) : startOfDay(now);
+        const endDate = customEnd ? new Date(`${customEnd}T00:00:00`) : endOfDay(now);
         return {
-          start: customStart || startOfDay(now),
-          end: customEnd || endOfDay(now),
+          start: startOfDay(startDate),
+          end: endOfDay(endDate),
         };
       default:
         return {
